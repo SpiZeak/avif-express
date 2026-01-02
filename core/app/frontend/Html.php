@@ -110,6 +110,10 @@ class Html
             return $content;
         }
 
+        // Rewrite urls inside <style> tags before DOM parsing.
+        // Mutating <style> content through the DOM serializer can break CSS.
+        $content = self::replaceStyleTagUrls($content);
+
         /**
          * loading the dom using voku\helper\HtmlDomParser
          * see more: https://github.com/voku/simple_html_dom
@@ -142,6 +146,53 @@ class Html
 
 
         return self::$dom;
+    }
+
+    /**
+     * Rewrites quoted url("...") / url('...') occurrences inside <style> tags.
+     * Done on the raw HTML string to avoid CSS corruption from DOM serialization.
+     */
+    private static function replaceStyleTagUrls(string $content): string
+    {
+        if (stripos($content, '<style') === false) {
+            return $content;
+        }
+
+        $result = preg_replace_callback(
+            '~(<style\b[^>]*>)(.*?)(</style>)~is',
+            function ($matches) {
+                $openTag = $matches[1];
+                $css = $matches[2];
+                $closeTag = $matches[3];
+
+                $cssUpdated = preg_replace_callback(
+                    '/url\(\s*(["\'])(.*?)\1\s*\)/i',
+                    function ($urlMatches) {
+                        $quote = $urlMatches[1];
+                        $imageUrl = trim($urlMatches[2]);
+                        $updatedImageUrl = $imageUrl;
+
+                        if (self::$isAvifSupported) {
+                            $updatedImageUrl = self::replaceImgSrc($imageUrl);
+                        } elseif (self::$fallbackType === 'webp') {
+                            $updatedImageUrl = self::webpReplaceImgSrc($imageUrl);
+                        }
+
+                        return 'url(' . $quote . $updatedImageUrl . $quote . ')';
+                    },
+                    $css
+                );
+
+                if ($cssUpdated === null) {
+                    return $matches[0];
+                }
+
+                return $openTag . $cssUpdated . $closeTag;
+            },
+            $content
+        );
+
+        return $result ?? $content;
     }
 
     /**
@@ -196,17 +247,6 @@ class Html
                 $style
             );
             $element->setAttribute('style', $style);
-        }
-
-        // 2. <style> tag contents
-        foreach (self::$dom->find('style') as &$styleTag) {
-            $css = $styleTag->innertext;
-            $css = preg_replace_callback(
-                '/url\((["\']?)([^"\')]+)\1\)/i',
-                $replaceCallback,
-                $css
-            );
-            $styleTag->innertext = $css;
         }
     }
 
