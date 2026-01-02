@@ -4,18 +4,15 @@ namespace Avife\frontend;
 
 if (!defined('ABSPATH')) exit;
 
-use Avife\common\Options;
 use Avife\common\Image;
 use Avife\common\Cookie;
+use Avife\common\Options;
 use Avife\common\Utility;
-use Avife\factory\Lazyloadfactory;
-
 use voku\helper\HtmlDomParser;
-//use Masterminds\HTML5;
+use Avife\factory\Lazyloadfactory;
 
 class Html
 {
-
     /**
      * if the browser supports avif image or not
      * @var bool
@@ -101,7 +98,6 @@ class Html
 
     public static function getContent($content)
     {
-
         /**
          * if it's not html return the content
          * simple preg_match
@@ -131,7 +127,7 @@ class Html
         self::handleImgBG();
 
         /**
-         * lazyload 
+         * lazyload
          */
         $lazyType = strtolower(Options::getLazyLoad());
         if ($lazyType != 'off') {
@@ -154,7 +150,6 @@ class Html
      */
     public static function handleImg()
     {
-
         foreach (self::$dom->getElementsByTagName('img') as &$image) {
 
             $image->setAttribute('converter', 'avif-express');
@@ -215,10 +210,6 @@ class Html
         }
     }
 
-
-
-
-
     /**
      * replace image url with .avif extension
      * if server support exist for avif images it will create that on the fly if file not existing
@@ -258,10 +249,9 @@ class Html
          * else try webp conversion
          */
         if (self::$enableOnTheFlyConversion && Utility::isLocalAvifConversionSupported()) {
-
-
             $imagePathSrc = Utility::attachmentUrlToPath($imageUrl);
-            $imagePathDest = rtrim($imagePathSrc, '.' . pathinfo($imagePathSrc, PATHINFO_EXTENSION)) . '.avif';
+            $pathInfo = pathinfo($imagePathSrc);
+            $imagePathDest = $pathInfo['dirname'] . DIRECTORY_SEPARATOR . $pathInfo['filename'] . '.avif';
 
             Image::convert($imagePathSrc, $imagePathDest, Options::getImageQuality(), Options::getComSpeed());
 
@@ -303,7 +293,7 @@ class Html
             /**
              * creating new image file url with altered extension
              */
-            $avifImageUrl = rtrim($v, '.' . pathinfo($v, PATHINFO_EXTENSION)) . '.avif';
+            $avifImageUrl = dirname($v) . '/' . pathinfo($v, PATHINFO_FILENAME) . '.avif';
 
             /**
              * checking if new file exists or not
@@ -324,7 +314,8 @@ class Html
 
 
                 $imagePathSrc = Utility::attachmentUrlToPath($v);
-                $imagePathDest = rtrim($imagePathSrc, '.' . pathinfo($imagePathSrc, PATHINFO_EXTENSION)) . '.avif';
+                $pathInfo = pathinfo($imagePathSrc);
+                $imagePathDest = $pathInfo['dirname'] . DIRECTORY_SEPARATOR . $pathInfo['filename'] . '.avif';
 
                 Image::convert($imagePathSrc, $imagePathDest, Options::getImageQuality(), Options::getComSpeed());
 
@@ -418,7 +409,7 @@ class Html
             /**
              * creating the webp file url
              */
-            $webpImageUrl = rtrim($v, '.' . pathinfo($v, PATHINFO_EXTENSION)) . '.webp';
+            $webpImageUrl = dirname($v) . '/' . pathinfo($v, PATHINFO_FILENAME) . '.webp';
 
             /**
              * checking if the webp file exist or not
@@ -446,7 +437,6 @@ class Html
         unset($v);
         return implode(' ', $srcset);
     }
-
 
     /**
      * checks if an image having a supported extension or not
