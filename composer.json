@@ -1,25 +1,25 @@
 {
-    "name": "pijushgupta/avif-express",
-    "description": "WordPress plugin to convert images to AVIF and serve them on the fly.",
-    "type": "wordpress-plugin",
-    "license": "GPL-2.0-or-later",
-    "authors": [
-        {
-            "name": "Pijush Gupta",
-            "role": "Developer"
-        }
-    ],
-    "require": {
-        "php": ">=7.4"
-    },
-    "autoload": {
-        "psr-4": {
-            "AvifExpress\\": "core/"
-        }
-    },
-    "config": {
-        "allow-plugins": {
-            "composer/installers": true
-        }
+  "name": "pijushgupta/avif-express",
+  "description": "WordPress plugin to convert images to AVIF and serve them on the fly.",
+  "type": "wordpress-plugin",
+  "license": "GPL-2.0-or-later",
+  "authors": [
+    {
+      "name": "Pijush Gupta",
+      "role": "Developer"
     }
+  ],
+  "require": {
+    "php": ">=7.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "Avife\\": "core/app/"
+    }
+  },
+  "config": {
+    "allow-plugins": {
+      "composer/installers": true
+    }
+  }
 }
