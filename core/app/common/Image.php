@@ -95,20 +95,15 @@ class Image
                         }
 
                         self::convert($srcPath, $desPath, $quality, $speed);
-
                     }
 
                     if (Options::getConversionEngine() == 'cloud') {
 
                         $unConvertedAttachmentUrls[] = $originalImage;
                         self::cloudConvert($unConvertedAttachmentUrls);
-
                     }
-
-
                 }
             }
-
         } else {
 
             $srcPath = Utility::attachmentUrlToPath($originalImages[0]);
@@ -157,16 +152,13 @@ class Image
                         return $metadata;
                     }
                     self::convert($src, $des, $quality, $speed);
-
                 }
 
                 if (Options::getConversionEngine() == 'cloud') {
 
                     $unConvertedAttachmentUrls[] = Utility::pathToAttachmentUrl($src);
                     self::cloudConvert($unConvertedAttachmentUrls);
-
                 }
-
             }
         }
         /**
@@ -191,11 +183,19 @@ class Image
         $attachment_meta = wp_get_attachment_metadata($post_id);
         $orginalImageUrls[0] = $orginalImageUrl;
         $uploadDirInfo = wp_upload_dir();
+        $fileExtension = pathinfo($orginalImageUrl, PATHINFO_EXTENSION);
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'];
+
+        if (!in_array(strtolower($fileExtension), $allowedExtensions)) {
+            return;
+        }
+
         if (is_bool($uploadDirInfo)) {
             Utility::logError('Insufficient File Permissions');
 
             return;
         }
+
         $orginalImageUrls[1] = $uploadDirInfo['baseurl'] . '/' . $attachment_meta['file'];
 
         if ($orginalImageUrls[0] != $orginalImageUrls[1]) {
@@ -342,7 +342,7 @@ class Image
                 $boundary = wp_generate_uuid4();
                 $delimiter = '-------------' . $boundary;
 
-                $body = Utility::prepareFormBody($filePath, $boundary,$url);
+                $body = Utility::prepareFormBody($filePath, $boundary, $url);
 
 
                 // 1. Sending image to the cloud server
@@ -353,7 +353,7 @@ class Image
 
                 // 2. Getting the response
                 $body = wp_remote_retrieve_body($cloudResponse);
-                if(intval(wp_remote_retrieve_header($cloudResponse,'x-ratelimit-requests-remaining')) == 0){
+                if (intval(wp_remote_retrieve_header($cloudResponse, 'x-ratelimit-requests-remaining')) == 0) {
                     Utility::logError('Consumed all of the allocated API calls');
                     return 'ccover';
                 }
@@ -373,9 +373,7 @@ class Image
                 if (isset($imageUrls['status']) && $imageUrls['status'] == 'success') {
                     $avifServerImageData[] = $imageUrls['data'];
                 }
-
             }
-
         } else {
             foreach ($urls as $url) {
 
@@ -385,7 +383,8 @@ class Image
 
                 //conversion started
                 //1. sending url to the cloud server
-                $cloudResponse = wp_remote_get($fullRequestUrl,
+                $cloudResponse = wp_remote_get(
+                    $fullRequestUrl,
                     [
                         'headers' => Utility::prepareRequestHeader($apiKey)
                     ]
@@ -398,10 +397,9 @@ class Image
                 if (is_wp_error($cloudResponse)) {
 
                     Utility::logError("Error:" . $cloudResponse->get_error_message());
-
                 }
 
-                if(intval(wp_remote_retrieve_header($cloudResponse,'x-ratelimit-requests-remaining')) == 0){
+                if (intval(wp_remote_retrieve_header($cloudResponse, 'x-ratelimit-requests-remaining')) == 0) {
                     Utility::logError('Consumed all of the allocated API calls');
                     return 'ccover';
                 }
@@ -412,19 +410,16 @@ class Image
                 if (isset($imageUrls['status']) && $imageUrls['status'] !== 'success') {
 
                     Utility::logError("Error:" . print_r($imageUrls, true));
-
                 }
 
                 if (isset($imageUrls['status']) && $imageUrls['status'] == 'success') {
 
                     $avifServerImageData[] = $imageUrls['data'];
                 }
-
             }
         }
 
         self::processResponse($avifServerImageData);
-
     }
 
     /**
@@ -449,7 +444,6 @@ class Image
                 $imagick->readImage($src);
                 $imagick->setImageFormat('webp');
                 return $imagick->writeImage($des);
-
             } catch (\ImagickException $e) {
                 Utility::logError('Imagick error: ' . $e->getMessage());
                 return false;
@@ -493,7 +487,6 @@ class Image
         }
 
         return false;
-
     }
 
     /**
@@ -541,7 +534,6 @@ class Image
                 if (!$wp_filesystem->put_contents($avifFileName, $body, FS_CHMOD_FILE)) {
                     Utility::logError('Unable to write avif file');
                 }
-
             }
         } else {
             Utility::logError('Invalid input: Expected array or object');
