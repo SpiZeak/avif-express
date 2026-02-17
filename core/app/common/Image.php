@@ -2,6 +2,8 @@
 
 namespace Avife\common;
 
+use Avife\frontend\Html;
+
 if (!defined('ABSPATH')) exit();
 
 class Image
@@ -183,10 +185,8 @@ class Image
         $attachment_meta = wp_get_attachment_metadata($post_id);
         $orginalImageUrls[0] = $orginalImageUrl;
         $uploadDirInfo = wp_upload_dir();
-        $fileExtension = pathinfo($orginalImageUrl, PATHINFO_EXTENSION);
-        $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'];
 
-        if (!in_array(strtolower($fileExtension), $allowedExtensions)) {
+        if (!Html::isSupportedExtension($orginalImageUrl)) {
             return;
         }
 
