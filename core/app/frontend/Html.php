@@ -110,6 +110,34 @@ class Html
             return $content;
         }
 
+        // Protect non-JavaScript <script> elements (e.g. type="text/template",
+        // type="text/x-handlebars-template") from HTML parsers that mishandle
+        // their raw-text content by treating it as parseable HTML.
+        $protectedScripts = [];
+        $jsTypes = ['', 'text/javascript', 'application/javascript',
+                    'text/ecmascript', 'application/ecmascript',
+                    'module', 'text/jscript'];
+        $content = preg_replace_callback(
+            '/<script\b([^>]*)>([\s\S]*?)<\/script>/i',
+            static function ($matches) use (&$protectedScripts, $jsTypes) {
+                $attrs = $matches[1];
+                if (preg_match("#\\btype\\s*=\\s*[\"'](.*?)[\"']#i", $attrs, $typeMatch)) {
+                    $type = strtolower(trim($typeMatch[1]));
+                    if (!in_array($type, $jsTypes, true)) {
+                        $placeholder = '<!--AVIF_SCRIPT_PLACEHOLDER_' . count($protectedScripts) . '-->';
+                        $protectedScripts[] = $matches[0];
+                        return $placeholder;
+                    }
+                }
+                return $matches[0];
+            },
+            $content
+        );
+        if ($content === null) {
+            $content = func_get_arg(0);
+            $protectedScripts = [];
+        }
+
         // Rewrite urls inside <style> tags before DOM parsing.
         // Mutating <style> content through the DOM serializer can break CSS.
         $content = self::replaceStyleTagUrls($content);
@@ -145,7 +173,21 @@ class Html
         }
 
 
-        return self::$dom;
+        // Serialize the DOM to an HTML string.
+        $result = (string) self::$dom;
+
+        // Restore protected non-JavaScript script elements.
+        if (!empty($protectedScripts)) {
+            foreach ($protectedScripts as $index => $original) {
+                $result = str_replace(
+                    '<!--AVIF_SCRIPT_PLACEHOLDER_' . $index . '-->',
+                    $original,
+                    $result
+                );
+            }
+        }
+
+        return $result;
     }
 
     /**
