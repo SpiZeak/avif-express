@@ -207,9 +207,26 @@ class OnDemandImages
         }
 
         /**
+         * clamping the requested dimensions to what the source allows,
+         * upscaling is refused by the image editor (e.g. requesting 300x300
+         * from a 200x200 original). when no resize is possible the original
+         * file is delivered as-is, mirroring WordPress core behavior
+         */
+        if (!function_exists('image_resize_dimensions')) {
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+        }
+
+        $origSize = $editor->get_size();
+        $dims = image_resize_dimensions($origSize['width'], $origSize['height'], $width, $height, true);
+
+        if (!is_array($dims)) {
+            self::serveFile($originalFile);
+        }
+
+        /**
          * resizing (true = hard crop, matches the HTML output)
          */
-        $resized = $editor->resize($width, $height, true);
+        $resized = $editor->resize($dims[4], $dims[5], true);
         if (is_wp_error($resized)) {
             self::terminate(500, 'Image resize error: ' . $resized->get_error_message());
         }
@@ -228,10 +245,26 @@ class OnDemandImages
         /**
          * delivering the image to the browser
          */
-        header('Content-Type: ' . $saved['mime-type']);
-        header('Content-Length: ' . filesize($saved['path']));
+        self::serveFile($saved['path'], $saved['mime-type']);
+    }
+
+    /**
+     * serveFile
+     * streams an image file to the browser with long-lived cache headers
+     * @param string $file absolute path of the file to deliver
+     * @param string $mime mime type, falls back to the file's own type
+     * @return void
+     */
+    private static function serveFile($file, $mime = '')
+    {
+        if ($mime === '') {
+            $mime = wp_check_filetype($file);
+            $mime = $mime['type'] !== '' ? $mime['type'] : 'application/octet-stream';
+        }
+        header('Content-Type: ' . $mime);
+        header('Content-Length: ' . filesize($file));
         header('Cache-Control: public, max-age=31536000');
-        readfile($saved['path']);
+        readfile($file);
         exit;
     }
 
