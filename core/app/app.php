@@ -15,6 +15,7 @@ use Avife\backend\Enqueue;
 use Avife\common\OnDemandImages;
 use Avife\common\Cli;
 use Avife\common\BackgroundImageConverter;
+use Avife\common\MissingSizes;
 
 /**
  * backend code
@@ -57,6 +58,12 @@ if (!is_admin()) {
  * loaded for both backend(upload) and frontend(rendering/fallback requests)
  */
 OnDemandImages::activate();
+
+/**
+ * registering self-healing cron repairing missing intermediate size
+ * files (missing originals are restored from their "-scaled" copies)
+ */
+MissingSizes::activate();
 
 /**
  * registering WP-CLI commands

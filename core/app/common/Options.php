@@ -195,6 +195,21 @@ class Options
         return update_option('avifondemandimages', $value ? '1' : '0');
     }
 
+    /**
+     * whether the hourly self-healing cron repairing missing
+     * intermediate size files runs (defaults to on)
+     */
+    public static function getRepairMissingSizes()
+    {
+        return get_option('avifrepairmissingsizes', '1') === '1';
+    }
+
+    public static function setRepairMissingSizes($value = null)
+    {
+        if (is_null($value)) $value = !self::getRepairMissingSizes();
+        return update_option('avifrepairmissingsizes', $value ? '1' : '0');
+    }
+
     public static function ajaxGetEnableLogging()
     {
         if (!wp_verify_nonce($_POST['avife_nonce'], 'avife_nonce')) wp_die();

@@ -17,6 +17,7 @@ class Cli
 
         \WP_CLI::add_command('avif-express ondemand', array('Avife\common\Cli', 'onDemand'));
         \WP_CLI::add_command('avif-express sizes purge', array('Avife\common\Cli', 'purgeSizes'));
+        \WP_CLI::add_command('avif-express sizes repair', array('Avife\common\Cli', 'repairSizes'));
     }
 
     /**
@@ -228,5 +229,116 @@ class Cli
             size_format($bytes),
             $scan ? '' : sprintf(' from %d attachment(s)', $attachments)
         )));
+    }
+
+    /**
+     * Repair attachments whose intermediate size files are recorded in
+     * metadata but missing on disk (visitor facing 404s). Restores
+     * missing unscaled originals from their "-scaled" copies, then
+     * regenerates all registered sizes through the same core API
+     * `wp media regenerate` uses. Complements the hourly self-healing
+     * cron by repairing everything at once.
+     *
+     * ## OPTIONS
+     *
+     * [--attachment=<id>]
+     * : Only repair a single attachment ID.
+     *
+     * [--dry-run]
+     * : Only list affected attachments, repair nothing.
+     *
+     * [--batch=<count>]
+     * : Repair at most this many attachments. Default: all found.
+     *
+     * ## EXAMPLES
+     *
+     *     wp avif-express sizes repair --dry-run
+     *     wp avif-express sizes repair
+     *     wp avif-express sizes repair --attachment=1849
+     *     wp avif-express sizes repair --batch=50
+     *
+     * @param array $args positional args
+     * @param array $assoc_args flags
+     * @return void
+     */
+    public static function repairSizes($args, $assoc_args)
+    {
+        $dryRun = \WP_CLI\Utils\get_flag_value($assoc_args, 'dry-run', false);
+        $attachmentId = \WP_CLI\Utils\get_flag_value($assoc_args, 'attachment', null);
+        $batch = (int)\WP_CLI\Utils\get_flag_value($assoc_args, 'batch', 0);
+
+        if ($attachmentId !== null) {
+            $attachmentId = absint($attachmentId);
+            $post = get_post($attachmentId);
+            if (!$post || $post->post_type !== 'attachment') {
+                \WP_CLI::error("Invalid --attachment value: {$attachmentId} is not an attachment.");
+            }
+            $meta = wp_get_attachment_metadata($attachmentId);
+            if (empty($meta['file'])) {
+                \WP_CLI::error("Attachment {$attachmentId} has no file metadata.");
+            }
+            $affected = array($meta['file'] => $attachmentId);
+            $scanned = 1;
+        } else {
+            /**
+             * independent full scan in chunks, the cron cursor state is
+             * not touched
+             */
+            global $wpdb;
+            $total = (int)$wpdb->get_var(
+                "SELECT COUNT(*) FROM {$wpdb->posts}
+                WHERE post_type = 'attachment' AND post_mime_type LIKE 'image/%'"
+            );
+            $progress = \WP_CLI\Utils\make_progress_bar('Scanning', max(1, (int)ceil($total / 500)));
+            $cursor = 0;
+            $affected = array();
+            while (true) {
+                $next = $cursor;
+                foreach (MissingSizes::findAffected($cursor, 500, $next) as $file => $id) {
+                    if (!isset($affected[$file])) $affected[$file] = $id;
+                }
+                $progress->tick();
+                if ($next === 0) break;
+                $cursor = $next;
+            }
+            $progress->finish();
+            $scanned = $total;
+        }
+
+        if (!$affected) {
+            \WP_CLI::success("No missing size files found ({$scanned} attachment(s) scanned).");
+            return;
+        }
+
+        \WP_CLI::line(sprintf('%d affected file(s) among %d scanned:', count($affected), $scanned));
+
+        $repaired = 0;
+        $failed = 0;
+        $limited = $batch > 0;
+        foreach ($affected as $file => $id) {
+            if ($limited && $repaired >= $batch) break;
+
+            $missing = MissingSizes::missingSizes(wp_get_attachment_metadata($id), wp_upload_dir()['basedir']);
+            \WP_CLI::line(sprintf('  %d %s missing=[%s]', $id, $file, implode(',', $missing) ?: '-'));
+
+            if ($dryRun) continue;
+
+            $result = MissingSizes::repairAttachment($id);
+            if ($result['status'] === 'repaired') {
+                $repaired++;
+            } elseif ($result['status'] !== 'intact') {
+                $failed++;
+            }
+
+            if ($result['status'] !== 'intact') {
+                \WP_CLI::line(sprintf('    -> %s: %s', $result['status'], $result['message']));
+            }
+        }
+
+        if ($dryRun) {
+            \WP_CLI::success(sprintf('Dry run: %d attachment(s) would be repaired.', count($affected)));
+        } else {
+            \WP_CLI::success(sprintf('Repaired %d, failed %d.', $repaired, $failed));
+        }
     }
 }
