@@ -184,10 +184,15 @@ class Options
         wp_die();
     }
 
-    public static function setOnDemandImages()
+    public static function setOnDemandImages($value = null)
     {
-        $onDemandImages = self::getOnDemandImages();
-        return update_option('avifondemandimages', !$onDemandImages);
+        /**
+         * no explicit value means toggle (ajax dashboard switch)
+         * storing '1'/'0' instead of bool: update_option() skips writing
+         * when a non-existent option is "updated" to false
+         */
+        if (is_null($value)) $value = !self::getOnDemandImages();
+        return update_option('avifondemandimages', $value ? '1' : '0');
     }
 
     public static function ajaxGetEnableLogging()

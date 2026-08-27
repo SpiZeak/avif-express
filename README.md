@@ -125,7 +125,12 @@ Generates intermediate image sizes (thumbnail, medium, large, custom sizes) only
     }
     ```
     Adjust the `/app/uploads/` path to your uploads directory. For Apache a mod_rewrite rule with the same parameters (`od_image`, `od_w`, `od_h`, `od_ext`) works as well.
-- Enabled by default. Disable it with `wp option update avifondemandimages 0` (a dashboard toggle follows).
+- Enabled by default. Disable it with `wp avif-express ondemand disable` (a dashboard toggle follows).
+
+**WP-CLI**
+
+- `wp avif-express ondemand status|enable|disable` — manage the on-demand feature.
+- `wp avif-express sizes purge [--attachment=<id>] [--scan] [--dry-run]` — delete already generated intermediate size files to free disk space. Uses attachment metadata by default (originals and `-scaled` files are never touched, srcset keeps working and deleted sizes regenerate on the next request). `--scan` instead matches the filename pattern across the uploads directory and also catches orphaned size files, but cannot distinguish originals genuinely named like `photo-800x600.jpg`. `--dry-run` lists without deleting.
 
 **Image Quality**
 
