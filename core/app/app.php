@@ -12,6 +12,7 @@ use Avife\common\Cron;
 use Avife\common\Image;
 use Avife\frontend\Html;
 use Avife\backend\Enqueue;
+use Avife\common\OnDemandImages;
 use Avife\common\BackgroundImageConverter;
 
 /**
@@ -49,6 +50,12 @@ if (!is_admin()) {
      */
     Html::init();
 }
+
+/**
+ * initializing on-demand image sizes
+ * loaded for both backend(upload) and frontend(rendering/fallback requests)
+ */
+OnDemandImages::activate();
 
 /**
  * initializing cron based on preset events 

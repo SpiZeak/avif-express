@@ -165,6 +165,31 @@ class Options
         return update_option('avifontheflyavif', !$onTheFlyAvif);
     }
 
+    public static function ajaxGetOnDemandImages()
+    {
+        if (!wp_verify_nonce($_POST['avife_nonce'], 'avife_nonce')) wp_die();
+        echo json_encode(self::getOnDemandImages());
+        wp_die();
+    }
+
+    public static function getOnDemandImages()
+    {
+        return (bool)get_option('avifondemandimages', true);
+    }
+
+    public static function ajaxSetOnDemandImages()
+    {
+        if (!wp_verify_nonce($_POST['avife_nonce'], 'avife_nonce')) wp_die();
+        echo json_encode(self::setOnDemandImages());
+        wp_die();
+    }
+
+    public static function setOnDemandImages()
+    {
+        $onDemandImages = self::getOnDemandImages();
+        return update_option('avifondemandimages', !$onDemandImages);
+    }
+
     public static function ajaxGetEnableLogging()
     {
         if (!wp_verify_nonce($_POST['avife_nonce'], 'avife_nonce')) wp_die();

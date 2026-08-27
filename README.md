@@ -112,6 +112,21 @@ If the browser does not support AVIF, the following image type will be served:
 
 When an AVIF version of an image is unavailable, the plugin attempts to generate it on the fly. Since AVIF conversion is slower than WebP and other formats, we recommend keeping this option disabled for better performance.
 
+**On-Demand Image Sizes**
+
+Generates intermediate image sizes (thumbnail, medium, large, custom sizes) only when a visitor actually requests them, instead of creating every size on upload.
+
+- WordPress stops generating size files on upload; image tags point to the size URLs directly.
+- When a size file is missing, the web server falls back to WordPress, which generates the file, saves it next to the original and serves it. Later requests are served directly by the web server.
+- Requires a web server fallback rule. For Nginx:
+    ```nginx
+    location ~* ^/app/uploads/(.+)-(\d+)x(\d+)\.(jpe?g|png)$ {
+        try_files $uri /index.php?od_image=$1&od_w=$2&od_h=$3&od_ext=$4;
+    }
+    ```
+    Adjust the `/app/uploads/` path to your uploads directory. For Apache a mod_rewrite rule with the same parameters (`od_image`, `od_w`, `od_h`, `od_ext`) works as well.
+- Enabled by default. Disable it with `wp option update avifondemandimages 0` (a dashboard toggle follows).
+
 **Image Quality**
 
 ![Image Quality](https://github.com/Pijushgupta/avif-express/blob/main/readme-screens/image-quality.png)

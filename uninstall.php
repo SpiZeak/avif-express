@@ -11,6 +11,7 @@ $options = [
     'avifcompressionspeed',
     'avifconversionengine',
     'avifontheflyavif',
+    'avifondemandimages',
     'avifenablelogging',
     'avifapikey',
     'aviffallbackmode',
