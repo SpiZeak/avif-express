@@ -146,8 +146,17 @@ class MissingSizes
             $nextId = (int)$row->ID;
             if (!self::isRegeneratableImage($row->post_mime_type)) continue;
             $meta = wp_get_attachment_metadata($nextId);
-            if (empty($meta['file']) || !file_exists($baseDir . '/' . $meta['file'])) continue;
-            if (!empty($meta['sizes']) && !self::missingSizes($meta, $baseDir)) continue;
+            if (empty($meta['file'])) continue;
+
+            /**
+             * a missing main file is repairable when a "-scaled" sibling
+             * can restore it; queued regardless of sizes then
+             */
+            $mainFile = $baseDir . '/' . $meta['file'];
+            $mainMissing = !file_exists($mainFile);
+            if ($mainMissing && !file_exists(self::scaledSiblingPath($mainFile))) continue;
+
+            if (!$mainMissing && !empty($meta['sizes']) && !self::missingSizes($meta, $baseDir)) continue;
             if (!isset($found[$meta['file']])) $found[$meta['file']] = $nextId;
         }
 
@@ -186,13 +195,29 @@ class MissingSizes
             return array('status' => 'unrepairable', 'message' => 'no file metadata');
         }
 
+        /**
+         * main file missing: restore it from its "-scaled" sibling when
+         * one exists (for unscaled attachments the sibling is typically
+         * a byte-identical copy of the lost original)
+         */
+        $mainFile = $baseDir . '/' . $meta['file'];
+        $mainRestored = false;
+        if (!file_exists($mainFile)) {
+            $sibling = self::scaledSiblingPath($mainFile);
+            if ($sibling !== null && file_exists($sibling) && @copy($sibling, $mainFile)) {
+                clearstatcache(false, $mainFile);
+                $mainRestored = true;
+            } else {
+                return array('status' => 'unrepairable', 'message' => 'main file missing: ' . $meta['file']);
+            }
+        }
+
         $hasSizes = !empty($meta['sizes']);
         $missing = $hasSizes ? self::missingSizes($meta, $baseDir) : array();
-        if ($hasSizes && !$missing) return array('status' => 'intact', 'message' => 'all size files present');
-
-        $mainFile = $baseDir . '/' . $meta['file'];
-        if (!file_exists($mainFile)) {
-            return array('status' => 'unrepairable', 'message' => 'main file missing: ' . $meta['file']);
+        if ($hasSizes && !$missing) {
+            return $mainRestored
+                ? array('status' => 'repaired', 'message' => 'main file restored from -scaled copy')
+                : array('status' => 'intact', 'message' => 'all size files present');
         }
 
         /**
@@ -262,6 +287,26 @@ class MissingSizes
 
         wp_update_attachment_metadata($attachmentId, $newMeta);
 
+        /**
+         * duplicates sharing the file (WPML media translations) carry
+         * the same stale metadata and would be queued by the next scan
+         * one by one; sync the fresh metadata to all of them
+         */
+        global $wpdb;
+        $dupes = $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT post_id FROM {$wpdb->postmeta}
+                WHERE meta_key = '_wp_attached_file' AND meta_value = %s AND post_id != %d",
+                $meta['file'],
+                $attachmentId
+            )
+        );
+        foreach ($dupes as $dupeId) {
+            if ('attachment' === get_post_type($dupeId)) {
+                wp_update_attachment_metadata((int)$dupeId, $newMeta);
+            }
+        }
+
         $stillMissing = self::missingSizes($newMeta, $baseDir);
         if ($stillMissing) {
             return array('status' => 'partial', 'message' => 'still missing: ' . implode(', ', array_slice($stillMissing, 0, 5)));
@@ -310,6 +355,19 @@ class MissingSizes
             array('image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'),
             true
         );
+    }
+
+    /**
+     * scaledSiblingPath
+     * Path of the "-scaled" sibling of a file, null when the file
+     * already carries the suffix itself
+     * @param string $file absolute file path
+     * @return string|null
+     */
+    private static function scaledSiblingPath($file)
+    {
+        if (preg_match('/-scaled(\.[^.]+)$/', $file)) return null;
+        return preg_replace('/(\.[^.]+)$/', '-scaled$1', $file);
     }
 
     /**
