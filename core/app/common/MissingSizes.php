@@ -112,7 +112,8 @@ class MissingSizes
     /**
      * findAffected
      * Inspects a batch of image attachments and returns those with size
-     * files recorded in metadata but missing on disk
+     * files recorded in metadata but missing on disk, or with no sizes
+     * recorded at all (metadata wiped by a previous failed regeneration)
      * @param int $fromId inspect attachments with an id greater than this
      * @param int $limit number of attachments to inspect
      * @param int $nextId updated to continue scanning from; 0 when the
@@ -133,7 +134,7 @@ class MissingSizes
 
         $rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT ID FROM {$wpdb->posts}
+                "SELECT ID, post_mime_type FROM {$wpdb->posts}
                 WHERE post_type = 'attachment' AND post_mime_type LIKE 'image/%' AND ID > %d
                 ORDER BY ID ASC LIMIT %d",
                 $nextId,
@@ -143,9 +144,10 @@ class MissingSizes
 
         foreach ($rows as $row) {
             $nextId = (int)$row->ID;
+            if (!self::isRegeneratableImage($row->post_mime_type)) continue;
             $meta = wp_get_attachment_metadata($nextId);
             if (empty($meta['file']) || !file_exists($baseDir . '/' . $meta['file'])) continue;
-            if (!self::missingSizes($meta, $baseDir)) continue;
+            if (!empty($meta['sizes']) && !self::missingSizes($meta, $baseDir)) continue;
             if (!isset($found[$meta['file']])) $found[$meta['file']] = $nextId;
         }
 
@@ -158,7 +160,9 @@ class MissingSizes
      * repairAttachment
      * Restores a missing unscaled original from its "-scaled" copy and
      * regenerates all registered intermediate size files through the
-     * same core API `wp media regenerate` uses
+     * same core API `wp media regenerate` uses. Attachments with no
+     * sizes recorded in metadata (wiped by a failed regeneration) are
+     * rebuilt the same way
      * @param int $attachmentId attachment id to repair
      * @return array array('status' => repaired|partial|intact|unrepairable|error|skipped, 'message' => string)
      */
@@ -167,8 +171,8 @@ class MissingSizes
         $attachmentId = (int)$attachmentId;
         $post = get_post($attachmentId);
 
-        if (!$post || $post->post_type !== 'attachment' || strpos($post->post_mime_type, 'image/') !== 0) {
-            return array('status' => 'skipped', 'message' => 'not an image attachment');
+        if (!$post || $post->post_type !== 'attachment' || !self::isRegeneratableImage($post->post_mime_type)) {
+            return array('status' => 'skipped', 'message' => 'not a regeneratable image attachment');
         }
 
         $uploads = wp_get_upload_dir();
@@ -178,12 +182,13 @@ class MissingSizes
         $baseDir = $uploads['basedir'];
 
         $meta = wp_get_attachment_metadata($attachmentId);
-        if (empty($meta['file']) || empty($meta['sizes'])) {
-            return array('status' => 'intact', 'message' => 'no intermediate sizes recorded');
+        if (empty($meta['file'])) {
+            return array('status' => 'unrepairable', 'message' => 'no file metadata');
         }
 
-        $missing = self::missingSizes($meta, $baseDir);
-        if (!$missing) return array('status' => 'intact', 'message' => 'all size files present');
+        $hasSizes = !empty($meta['sizes']);
+        $missing = $hasSizes ? self::missingSizes($meta, $baseDir) : array();
+        if ($hasSizes && !$missing) return array('status' => 'intact', 'message' => 'all size files present');
 
         $mainFile = $baseDir . '/' . $meta['file'];
         if (!file_exists($mainFile)) {
@@ -191,10 +196,12 @@ class MissingSizes
         }
 
         /**
-         * regeneration source: the unscaled original for scaled images,
-         * the main file itself otherwise. `wp media regenerate` fails
-         * outright when the original is missing, so it is restored from
-         * the "-scaled" copy (same pixels, max 2560px side) first.
+         * regeneration source preference: the recorded original, then a
+         * sibling file without the "-scaled" suffix (metadata wipe drops
+         * the original_image key but the restored original stays on
+         * disk), then the main file. Regenerating from the unscaled
+         * name keeps the classic size file names (X-768x….jpg) the
+         * frontend historically referenced.
          */
         $source = $mainFile;
         if (!empty($meta['original_image'])) {
@@ -206,15 +213,51 @@ class MissingSizes
                 clearstatcache(false, $original);
             }
             $source = $original;
+        } else {
+            $sibling = preg_replace('/-scaled(\.[^.]+)$/', '$1', $mainFile);
+            if ($sibling !== $mainFile && file_exists($sibling)) {
+                $source = $sibling;
+            }
         }
 
         if (!function_exists('wp_generate_attachment_metadata')) {
             require_once ABSPATH . 'wp-admin/includes/image.php';
         }
 
+        /**
+         * the on-demand feature suppresses intermediate size generation
+         * (OnDemandImages::disableIntermediateSizes returns an empty
+         * size list), which would make regeneration a no-op. the filter
+         * is lifted for the duration of the call and restored after.
+         */
+        $suppressors = array(array('Avife\common\OnDemandImages', 'disableIntermediateSizes'));
+        $lifted = array();
+        foreach ($suppressors as $callback) {
+            $priority = has_filter('intermediate_image_sizes_advanced', $callback);
+            if ($priority !== false) {
+                remove_filter('intermediate_image_sizes_advanced', $callback, $priority);
+                $lifted[] = array($callback, $priority);
+            }
+        }
+
         $newMeta = wp_generate_attachment_metadata($attachmentId, $source);
-        if (!is_array($newMeta) || empty($newMeta['sizes'])) {
+
+        foreach ($lifted as $l) {
+            add_filter('intermediate_image_sizes_advanced', $l[0], $l[1]);
+        }
+
+        if (!is_array($newMeta)) {
             return array('status' => 'error', 'message' => 'wp_generate_attachment_metadata failed');
+        }
+
+        /**
+         * metadata is persisted inside wp_generate_attachment_metadata
+         * even when no sizes could be created (image too small for the
+         * smallest registered size, or an editor limitation) — nothing
+         * more can be done for this attachment
+         */
+        if (empty($newMeta['sizes'])) {
+            return array('status' => 'unrepairable', 'message' => 'no intermediate sizes could be generated');
         }
 
         wp_update_attachment_metadata($attachmentId, $newMeta);
@@ -224,7 +267,10 @@ class MissingSizes
             return array('status' => 'partial', 'message' => 'still missing: ' . implode(', ', array_slice($stillMissing, 0, 5)));
         }
 
-        return array('status' => 'repaired', 'message' => count($missing) . ' size file(s) regenerated');
+        return array(
+            'status' => 'repaired',
+            'message' => $hasSizes ? count($missing) . ' size file(s) regenerated' : 'intermediate sizes rebuilt',
+        );
     }
 
     /**
@@ -247,6 +293,23 @@ class MissingSizes
         }
 
         return $missing;
+    }
+
+    /**
+     * isRegeneratableImage
+     * Raster image types the WordPress image editor can resize and that
+     * carry intermediate sizes (SVG and other vector/exotic types never
+     * do and would only produce repair noise)
+     * @param string $mimeType attachment mime type
+     * @return bool
+     */
+    private static function isRegeneratableImage($mimeType)
+    {
+        return in_array(
+            $mimeType,
+            array('image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'),
+            true
+        );
     }
 
     /**
