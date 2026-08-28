@@ -77,6 +77,16 @@ class OnDemandImages
 
         if (!$imgUrl || !$meta || !isset($meta['width'], $meta['height'])) return false;
 
+        /**
+         * the on-demand handler only generates raster files (jpg, jpeg,
+         * png); anything else, notably svg, would get a size URL that
+         * neither the image editor nor the web server fallback can ever
+         * produce (visitor facing 404, e.g. logos). returning false lets
+         * WordPress core serve the original file instead
+         */
+        $ext = strtolower(pathinfo($imgUrl, PATHINFO_EXTENSION));
+        if (!in_array($ext, self::ALLOWED_EXTENSIONS, true)) return false;
+
         $targetWidth = 0;
         $targetHeight = 0;
         $crop = false;
